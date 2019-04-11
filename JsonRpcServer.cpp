@@ -1,71 +1,6 @@
 #include "JsonRpcServer.h"
+#include <sstream>
 
-/*static void *Do_Work(void *arg)
-{
-	int cfd = *((int *) arg);
-
-	int retVal = 0;
-	char *buff;
-	char *cstr;
-
-	buff = (char *)malloc(sizeof(char)*N);
-	char *p = buff;
-	
-	cstr = (char *)malloc( sizeof(char)*N);
-	
-	retVal = recv(cfd, buff, N, 0); 
-	if(-1 == retVal)
-	{
-		perror("recv");
-		return NULL;
-	}
-
-	int n;
-	while(*buff)
-	{
-		if (*buff == '\r' || *buff == '\n')
-    	    n++;
-       else
-   		    n=0;
-        if (n==4)//找到报头结尾的地方
-        break;
-
-        buff++;
-	}
-	cout << buff << endl;
-
-	string str = "HTTP/1.1 200 OK\r\n"
-			      "Server: nginx/1.14.1\r\n"
-			      "Date: Mon, 01 Apr 2019 09:20:45 GMT\r\n"
-				  //"Transfer-Encoding: chunked\r\n"
-				  "Connection: close\r\n"
-			     // application/json: 
-				  //Proxy-Connection: keep-alive
-				  "\r\n\r\n"
-				  "{\"jsonrpc\": \"2.0\", \"result\": 19, \"id\": 1}";
-	
-	strcpy(cstr,str.c_str());
-
-	write(STDOUT_FILENO, cstr, N);
-
-	retVal = send(cfd, cstr, N, 0);
-
-	if(-1 == retVal)
-	{
-		perror("send");
-		return NULL;
-	}
-
-
-	free(cstr);
-	cstr = NULL;
-
-	buff = p;
-	free(buff);
-	buff = NULL;
-
-	close(cfd);
-}*/
 static void *ProcessData(void *arg);
 
 struct context_t {
@@ -168,11 +103,10 @@ int JsonRpcServer::StartServer(int PORTNUM)
 	return 0;
 }
 
-//可插入很多客户端需要实现的功能
+//可插入功能
 void JsonRpcServer::Register(const std::string & method, JsonRpcServer::func f)
 {
 	mapfunction.insert(pair<string, func>(method, f));
-	//mapfunction["Print_Sth"] = &JsonRpcServer::Print_Sth;
 }
 
 static char* RecvData(int cfd)
@@ -182,18 +116,44 @@ static char* RecvData(int cfd)
 
 	buff = (char *)malloc(sizeof(char)*N);
 
-	char *p = buff;
+	string header("");
 
-	retVal = recv(cfd, buff, N, 0); 
-	if(-1 == retVal)
-	{
-		perror("recv");
-	}
+	while (header.find("\r\n\r\n") == header.npos) {//find返回一个索引值（int型），字符串所在的位置
+		cout << "!!!" << endl;
+		retVal = recv(cfd, buff, N, 0);
+		if(-1 == retVal)
+		{
+			perror("recv");
+		}
+		
+		header.append(buff);
+	}//接收一个完整的头
 
+	char substr[] = "Content-Length: ";
+	const char *res = strstr(header.c_str(), substr);
+	
+	string txt = string(res);
+	size_t a = txt.find_first_of(':');
+	size_t b = txt.find_first_of('\r');
+
+	string scontentLength = txt.substr(a+1, b-a-1);
+
+	int contentLength;
+	stringstream ss;
+	ss << scontentLength;
+	ss >> contentLength;
+	
+	cout << contentLength << endl;
+
+	
+	int length = header.length() - header.find("\r\n\r\n") - 4;//find返回一个索引值（int型），字符串所在的位置
+	char *message = (char *)malloc(sizeof(char) * contentLength);
+
+	const char *Header = header.c_str();
 	int n;
-	while(*buff)
+	while(*Header)
 	{
-		if (*buff == '\r' || *buff == '\n')
+		if (*Header == '\r' || *Header == '\n')
     	    n++;
         else
    		    n=0;
@@ -201,13 +161,29 @@ static char* RecvData(int cfd)
         if (n==4)//找到报头结尾的地方
         	break;
 
-        buff++;
+        Header++;
+	}
+	
+	memcpy(message, Header, length);//将接收完整的头文件中可能携带的数据部分赋值给message
+
+	//cout << message << endl;
+
+	while (length < contentLength) {
+		cout << "###" << endl;
+		//length += recv (cfd, message + length, contentLength - length, 0);
+		retVal = recv (cfd, message + length, contentLength - length, 0);
+		if (-1 == retVal)
+		{
+			perror("recv");
+		}
+		else 
+			length += retVal;
 	}
 
-	return buff;
+	return message;
 }
 
-static void SendData(int cfd, const std::string &str)
+static int SendData(int cfd, const std::string &str)
 {
 	int retVal = 0;
 	
@@ -216,7 +192,10 @@ static void SendData(int cfd, const std::string &str)
 	if(-1 == retVal)
 	{
 		perror("send");
+		return -1;
 	}
+
+	return 0;
 }
 
 static void *ProcessData(void *arg)
