@@ -14,20 +14,23 @@
 
 
 #include <string>
+#include <vector>
 
 #include <json/json.h>
 
 class JsonRpcRequest {
 private:
 	Json::Value json_str;
+
 public:
 	JsonRpcRequest();//构造函数
     JsonRpcRequest(const std::string &json);//带参构造函数，初始化成员变量，json格式的字符串，转化为json对象类型
+    JsonRpcRequest(const JsonRpcRequest &a);
 
     int Validate();
     std::string ToString();//
 
-	void SetJsonRpc(const std::string &jsonrpc);
+	void SetJsonRpc();
 	std::string GetJsonRpc();
 
     void SetMethod(const std::string &method);
@@ -47,15 +50,13 @@ private:
 public:
     JsonRpcResponse();
     JsonRpcResponse(const std::string &json);
+    JsonRpcResponse(const JsonRpcResponse &a);
 
     int Validate();
     std::string ToString();
 
-    void SetJsonRpc(const std::string &jsonrpc);
+    void SetJsonRpc();
     std::string GetJsonRpc();
-
-    //void SetResult(int result);
-    //int GetResult();
 
 	void SetResult(const std::string &result);
 	Json::Value &GetResult();
@@ -68,6 +69,52 @@ public:
 
 	void Insert(Json::Value &value);
 };
+
+class MJsonRpcRequest
+{
+private:
+	Json::Value jsondata;
+	std::vector<JsonRpcRequest> V;
+
+	int n;
+	int flag;
+	//enum class type {multi, single} flag;
+
+public:
+	MJsonRpcRequest();
+	MJsonRpcRequest(const std::string &json);//解析string
+
+	void InsertJsonObj(JsonRpcRequest &obj);
+	std::string ToString(); 
+
+	JsonRpcRequest &operator[](int n);
+	int GetSize();
+	bool GetFlag();
+};
+
+class MJsonRpcResponse
+{
+private:
+	Json::Value jsondata;
+	std::vector<JsonRpcResponse> V;
+
+	int n;
+	int flag;
+
+	//enum class type {multi, single} flag;
+public:
+	MJsonRpcResponse();
+	MJsonRpcResponse(const std::string &json);//解析string
+
+	void InsertJsonObj(JsonRpcResponse &obj);
+	std::string ToString();
+
+	JsonRpcResponse &operator[](int n);
+	int GetSize();
+	bool GetFlag();
+
+};
+
 
 
 

@@ -126,8 +126,11 @@ static char* RecvData(int cfd)
 			perror("recv");
 		}
 		
+	//	cout << buff << endl;
 		header.append(buff);
 	}//接收一个完整的头
+
+	//cout << header.c_str() << endl;
 
 	char substr[] = "Content-Length: ";
 	const char *res = strstr(header.c_str(), substr);
@@ -147,10 +150,12 @@ static char* RecvData(int cfd)
 
 	
 	int length = header.length() - header.find("\r\n\r\n") - 4;//find返回一个索引值（int型），字符串所在的位置
+
 	char *message = (char *)malloc(sizeof(char) * contentLength);
 
 	const char *Header = header.c_str();
 	int n;
+
 	while(*Header)
 	{
 		if (*Header == '\r' || *Header == '\n')
@@ -159,14 +164,15 @@ static char* RecvData(int cfd)
    		    n=0;
 
         if (n==4)//找到报头结尾的地方
+        {	
+        	Header++;
         	break;
+        }
 
         Header++;
 	}
 	
 	memcpy(message, Header, length);//将接收完整的头文件中可能携带的数据部分赋值给message
-
-	//cout << message << endl;
 
 	while (length < contentLength) {
 		cout << "###" << endl;
@@ -180,6 +186,7 @@ static char* RecvData(int cfd)
 			length += retVal;
 	}
 
+	//cout << message << endl;
 	return message;
 }
 
@@ -208,35 +215,77 @@ static void *ProcessData(void *arg)
 
 	string serverdata = RecvData(context->fd);//recvdata函数需要把接收到的客户端的报文传出来
 
-	cout << serverdata << endl;
+	//cout << serverdata << endl;
 
-	JsonRpcRequest request(serverdata);//解析报文
-	JsonRpcResponse response;
+	MJsonRpcRequest multiRequests(serverdata);
 
-	response.SetJsonRpc(request.GetJsonRpc());
+	//int flag = multiRequests.GetFlag();
 
-	string method = request.GetMethod();
+	if(multiRequests.GetFlag())
+	{
+		MJsonRpcResponse multiResponses;
 
-	auto iter = context->map->find(method);
+		for (int i = 0; i < multiRequests.GetSize(); ++i) 
+		{
+			JsonRpcResponse response;
 
-	if(iter != context->map->end())
+			response.SetJsonRpc();
+
+			response.SetId(multiRequests[i].GetId());
+
+			string method = multiRequests[i].GetMethod();
+	
+			auto f = context->map->find(method);
+
+			if(f != context->map->end())
+			function = f->second;
+			int errorCode = function(multiRequests[i].GetParams(),result);
+
+			if(errorCode == 0)
+				response.Insert(result);
+			else
+				response.SetResult("{\"errorCode\":0}");
+
+			multiResponses.InsertJsonObj(response);
+		}
+
+		cout << "------------------------------" << endl;
+		cout << "data prepared to be sent" << endl;
+		cout << multiResponses.ToString() << endl;
+
+		SendData(context->fd, multiResponses.ToString());//senddata需要把服务器处理过的报文返回给客户端
+	}
+
+	else
+	{
+		JsonRpcRequest request(serverdata);//解析报文
+		JsonRpcResponse response;
+
+		response.SetJsonRpc();
+
+		string method = request.GetMethod();
+
+		auto iter = context->map->find(method);
+
+		if(iter != context->map->end())
 		function = iter->second;
 
-	int errorCode = function(request.GetParams(), result);
+		int errorCode = function(request.GetParams(), result);
 
-	if( errorCode == 0)
-		response.Insert(result);
-	else
-		response.SetResult("{\"errorCode\":0}");
+		if( errorCode == 0)
+			response.Insert(result);
+		else
+			response.SetResult("{\"errorCode\":0}");
 
-	response.SetId(request.GetId());
+		response.SetId(request.GetId());
 
-	cout << "data prepared to be sent" << endl;
-	cout << response.ToString() << endl;
+		cout << "data prepared to be sent" << endl;
+		cout << response.ToString() << endl;
 
-	SendData(context->fd, response.ToString());//senddata需要把服务器处理过的报文返回给客户端
+		SendData(context->fd, response.ToString());//senddata需要把服务器处理过的报文返回给客户端
+	}
 
-	close(context->fd);
+		close(context->fd);
 }
 
 

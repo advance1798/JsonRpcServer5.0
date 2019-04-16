@@ -15,7 +15,7 @@
 
 using namespace std;
 
-#define N 1000
+#define N 10000
 
 using namespace std;
 
