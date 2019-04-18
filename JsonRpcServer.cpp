@@ -2,6 +2,8 @@
 #include <sstream>
 
 static void *ProcessData(void *arg);
+void RemoteCall(JsonRpcRequest &request,struct context_t *context,JsonRpcResponse &response);
+void JudgeError(JsonRpcRequest &request, const char **error);
 
 struct context_t {
 	std::map<string, JsonRpcServer::func> *map;
@@ -186,7 +188,7 @@ static char* RecvData(int cfd)
 			length += retVal;
 	}
 
-	//cout << message << endl;
+	cout << message << endl;
 	return message;
 }
 
@@ -195,7 +197,6 @@ static int SendData(int cfd, const std::string &str)
 	int retVal = 0;
 	
 	retVal = send(cfd, str.c_str(), str.length(), 0);
-
 	if(-1 == retVal)
 	{
 		perror("send");
@@ -208,66 +209,115 @@ static int SendData(int cfd, const std::string &str)
 static void *ProcessData(void *arg)
 {
 
-	struct context_t *context = (struct context_t *) arg;
+	string str = "HTTP/1.1 200 OK\r\n"
+			      "Server: nginx/1.14.1\r\n"
+			      "Date: Mon, 01 Apr 2019 09:20:45 GMT\r\n"
+				  "Connection: close\r\n"
+			     "application/json: \r\n" 
+				  "Proxy-Connection: keep-alive\r\n"
+				  "\r\n\r\n";
 
-	Json::Value result;
-	JsonRpcServer::func function;
+	struct context_t *context = (struct context_t *) arg;
 
 	string serverdata = RecvData(context->fd);//recvdata函数需要把接收到的客户端的报文传出来
 
-	//cout << serverdata << endl;
-
-	MJsonRpcRequest multiRequests(serverdata);
-
-	//int flag = multiRequests.GetFlag();
-
-	if(multiRequests.GetFlag())
-	{
-		MJsonRpcResponse multiResponses;
-
-		for (int i = 0; i < multiRequests.GetSize(); ++i) 
-		{
-			JsonRpcResponse response;
-
-			response.SetJsonRpc();
-
-			response.SetId(multiRequests[i].GetId());
-
-			string method = multiRequests[i].GetMethod();
+	JsonRpcRequest request(serverdata);
 	
-			auto f = context->map->find(method);
+	//判断是批量还是单条
+	if(request.IsMulti())
+	{
+		int num = 0;
+		MJsonRpcResponse multiResponses;
+		MJsonRpcRequest multiRequests(serverdata);
+		JsonRpcResponse response;
+		const char *error = NULL;
 
-			if(f != context->map->end())
-			function = f->second;
-			int errorCode = function(multiRequests[i].GetParams(),result);
+		for(int i = 0; i < multiRequests.GetSize(); ++i)
+		{
+			if(multiRequests[i].Validate() == 0)
+			{
+				if(multiRequests[i].IsNotify())
+				{
+					num++;
+					continue;//跳出当前的循环体
+				}
+				//不是通知正常进行
+				else
+				{
+					RemoteCall(request, context, response);
+					multiResponses.InsertJsonObj(response);
+				}
+			}
 
-			if(errorCode == 0)
-				response.Insert(result);
 			else
-				response.SetResult("{\"errorCode\":0}");
+			{
+				JudgeError(multiRequests[i], &error);
+			}
 
-			multiResponses.InsertJsonObj(response);
+			if (error != NULL) {
+				response.SetError(error);
+				response.SetId(multiRequests[i].GetId());
+
+				multiResponses.InsertJsonObj(response);
+			}
+
 		}
-
-		cout << "------------------------------" << endl;
-		cout << "data prepared to be sent" << endl;
-		cout << multiResponses.ToString() << endl;
-
-		SendData(context->fd, multiResponses.ToString());//senddata需要把服务器处理过的报文返回给客户端
+		
+		if(num == multiRequests.GetSize())
+			SendData(context->fd, str);
+		else
+		{	
+			cout << "-------------" << endl;
+			cout << multiResponses.ToString() << endl;
+			str = str + multiResponses.ToString();
+			SendData(context->fd, str);
+		}
 	}
-
+	//单条
 	else
 	{
-		JsonRpcRequest request(serverdata);//解析报文
 		JsonRpcResponse response;
 
-		response.SetJsonRpc();
+		const char *error = NULL;
+		if(request.Validate() == 0)
+		{
+			if(request.IsNotify())
+			{
+				SendData(context->fd,str);//跳出当前的循环体
+			}
+			//不是通知正常进行
+			else
+			{
+				RemoteCall(request, context, response);
+				str = str + response.ToString();
+				SendData(context->fd,str);
+			}
+		}
 
-		string method = request.GetMethod();
+		else
+		{
+			JudgeError(request, &error);
+		}
+		if (error != NULL) {
+			response.SetError(error);
+			response.SetId(request.GetId());
+			str = str + response.ToString();
+			SendData(context->fd, str);
+		}
+	}
+	close(context->fd);	
+}
 
-		auto iter = context->map->find(method);
+void RemoteCall(JsonRpcRequest &request,struct context_t *context,JsonRpcResponse &response)
+{
+	Json::Value result;
+	JsonRpcServer::func function;
+	string method = request.GetMethod();
 
-		if(iter != context->map->end())
+	auto iter = context->map->find(method);
+
+	if(iter != context->map->end())
+	{
 		function = iter->second;
 
 		int errorCode = function(request.GetParams(), result);
@@ -275,18 +325,53 @@ static void *ProcessData(void *arg)
 		if( errorCode == 0)
 			response.Insert(result);
 		else
-			response.SetResult("{\"errorCode\":0}");
+			response.SetResult("{\"FunctionError\":\"NULL\"}");
 
 		response.SetId(request.GetId());
 
-		cout << "data prepared to be sent" << endl;
-		cout << response.ToString() << endl;
-
-		SendData(context->fd, response.ToString());//senddata需要把服务器处理过的报文返回给客户端
 	}
-
-		close(context->fd);
+	//没有找到远程调用的方法	
+	else
+	{
+		response.SetJsonRpc();
+		response.SetError("{\"code\": -32601, \"message\": \"Method not found\"}");
+		response.SetId(request.GetId());
+	}	
 }
+
+void JudgeError(JsonRpcRequest &request, const char **error)
+{
+	switch(request.Validate()) {
+				
+		case NO_PARAMS:
+		*error = "{\"code\": -32765, \"message\": \"Lack of params\"}";
+		break ;
+
+		case PARSE_FAILED:
+		*error = "{\"code\": -32700, \"message\": \"Parse error\"}";
+		break;
+
+		case NO_JSONRPC:
+		*error = "{\"code\": -32767, \"message\": \"JsonRpc not found\"}";
+		break;
+
+		case NO_METH:
+		*error = "{\"code\": -32766, \"message\": \"Lack of method\"}";
+		break;
+
+		case INVALID_PARAMS:
+		*error = "{\"code\": -32602, \"message\": \"Invalid params\"}";
+		break;
+
+		default:
+		*error = NULL;
+		break;
+		}
+}
+
+
+
+
 
 
 

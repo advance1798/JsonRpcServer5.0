@@ -1,13 +1,18 @@
 #ifndef OMA_DM_SAMPLE_JSON_RPC_H_
 #define OMA_DM_SAMPLE_JSON_RPC_H_
 
+#define PARSE_FAILED 2
 #define NO_JSONRPC 3
 #define NO_METH 4
 #define NO_ID 5
 #define NO_PARAMS 6
+#define INVALID_PARAMS 7
 
-#define INVALID_INCLUDE 7
-#define NO_RESULT_OR_ERROR 8
+#define INVALID_INCLUDE 8
+#define NO_RESULT_OR_ERROR 9
+#define INVALID_ERROR 10
+#define GET_RESULT 11
+#define GET_ERROR 12
 //#define NO_THIS_CODE 8
 //#define NO_THIS_MESSAGE 9
 //#define MISMATCH_CODE_MESSAGE 10
@@ -28,6 +33,8 @@ public:
     JsonRpcRequest(const JsonRpcRequest &a);
 
     int Validate();
+    bool IsNotify();
+    bool IsMulti();
     std::string ToString();//
 
 	void SetJsonRpc();
@@ -53,6 +60,8 @@ public:
     JsonRpcResponse(const JsonRpcResponse &a);
 
     int Validate();
+    bool IsNotify();
+    bool IsMulti();
     std::string ToString();
 
     void SetJsonRpc();
@@ -76,10 +85,6 @@ private:
 	Json::Value jsondata;
 	std::vector<JsonRpcRequest> V;
 
-	int n;
-	int flag;
-	//enum class type {multi, single} flag;
-
 public:
 	MJsonRpcRequest();
 	MJsonRpcRequest(const std::string &json);//解析string
@@ -89,7 +94,6 @@ public:
 
 	JsonRpcRequest &operator[](int n);
 	int GetSize();
-	bool GetFlag();
 };
 
 class MJsonRpcResponse
@@ -98,10 +102,6 @@ private:
 	Json::Value jsondata;
 	std::vector<JsonRpcResponse> V;
 
-	int n;
-	int flag;
-
-	//enum class type {multi, single} flag;
 public:
 	MJsonRpcResponse();
 	MJsonRpcResponse(const std::string &json);//解析string
@@ -111,8 +111,6 @@ public:
 
 	JsonRpcResponse &operator[](int n);
 	int GetSize();
-	bool GetFlag();
-
 };
 
 
