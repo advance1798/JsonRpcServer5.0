@@ -34,11 +34,8 @@ public:
 
     int Validate();
     bool IsNotify();
-    bool IsMulti();
+   
     std::string ToString();//
-
-	void SetJsonRpc();
-	std::string GetJsonRpc();
 
     void SetMethod(const std::string &method);
     std::string GetMethod();
@@ -61,11 +58,8 @@ public:
 
     int Validate();
     bool IsNotify();
-    bool IsMulti();
+  
     std::string ToString();
-
-    void SetJsonRpc();
-    std::string GetJsonRpc();
 
 	void SetResult(const std::string &result);
 	Json::Value &GetResult();
@@ -82,8 +76,9 @@ public:
 class MJsonRpcRequest
 {
 private:
-	Json::Value jsondata;
 	std::vector<JsonRpcRequest> V;
+	int n;
+	bool flag;
 
 public:
 	MJsonRpcRequest();
@@ -91,6 +86,7 @@ public:
 
 	void InsertJsonObj(JsonRpcRequest &obj);
 	std::string ToString(); 
+	bool IsMulti();
 
 	JsonRpcRequest &operator[](int n);
 	int GetSize();
@@ -99,8 +95,9 @@ public:
 class MJsonRpcResponse
 {
 private:
-	Json::Value jsondata;
 	std::vector<JsonRpcResponse> V;
+	int n;
+	bool flag;
 
 public:
 	MJsonRpcResponse();
@@ -108,6 +105,8 @@ public:
 
 	void InsertJsonObj(JsonRpcResponse &obj);
 	std::string ToString();
+
+	void SetMulti(bool a);
 
 	JsonRpcResponse &operator[](int n);
 	int GetSize();

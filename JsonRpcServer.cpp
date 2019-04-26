@@ -3,7 +3,7 @@
 
 static void *ProcessData(void *arg);
 void RemoteCall(JsonRpcRequest &request,struct context_t *context,JsonRpcResponse &response);
-void JudgeError(JsonRpcRequest &request, const char **error);
+const char * JudgeError(JsonRpcRequest &request);
 
 struct context_t {
 	std::map<string, JsonRpcServer::func> *map;
@@ -221,91 +221,56 @@ static void *ProcessData(void *arg)
 
 	string serverdata = RecvData(context->fd);//recvdata函数需要把接收到的客户端的报文传出来
 
-	JsonRpcRequest request(serverdata);
-	
-	//判断是批量还是单条
-	if(request.IsMulti())
+	MJsonRpcRequest multiRequests(serverdata);
+	MJsonRpcResponse multiResponses;
+
+	multiResponses.SetMulti(multiRequests.IsMulti());
+
+	int num = 0;
+
+	for(int i = 0; i < multiRequests.GetSize(); ++i)
 	{
-		int num = 0;
-		MJsonRpcResponse multiResponses;
-		MJsonRpcRequest multiRequests(serverdata);
-		JsonRpcResponse response;
-		const char *error = NULL;
+		JsonRpcResponse response;//必须在循环体内定义，退出这个循环体就析构一次response对象,否则会造成信息残留
 
-		for(int i = 0; i < multiRequests.GetSize(); ++i)
+		if(multiRequests[i].Validate() == 0)
 		{
-			if(multiRequests[i].Validate() == 0)
+			if(multiRequests[i].IsNotify())
 			{
-				if(multiRequests[i].IsNotify())
-				{
-					num++;
-					continue;//跳出当前的循环体
-				}
-				//不是通知正常进行
-				else
-				{
-					RemoteCall(request, context, response);
-					multiResponses.InsertJsonObj(response);
-				}
+				num++;
+				continue;//跳出当前的循环体
 			}
-
+				//不是通知正常进行
 			else
 			{
-				JudgeError(multiRequests[i], &error);
+				RemoteCall(multiRequests[i], context, response);
+				multiResponses.InsertJsonObj(response);
 			}
+		}
 
-			if (error != NULL) {
-				response.SetError(error);
+		else 
+		{
+			if (JudgeError(multiRequests[i]) != NULL) 
+			{
+				response.SetError(JudgeError(multiRequests[i]));
 				response.SetId(multiRequests[i].GetId());
 
 				multiResponses.InsertJsonObj(response);
 			}
-
 		}
+
+	}
 		
-		if(num == multiRequests.GetSize())
-			SendData(context->fd, str);
-		else
-		{	
-			cout << "-------------" << endl;
-			cout << multiResponses.ToString() << endl;
-			str = str + multiResponses.ToString();
-			SendData(context->fd, str);
-		}
-	}
-	//单条
+	if(num == multiRequests.GetSize())
+		SendData(context->fd, str);
 	else
-	{
-		JsonRpcResponse response;
-
-		const char *error = NULL;
-		if(request.Validate() == 0)
-		{
-			if(request.IsNotify())
-			{
-				SendData(context->fd,str);//跳出当前的循环体
-			}
-			//不是通知正常进行
-			else
-			{
-				RemoteCall(request, context, response);
-				str = str + response.ToString();
-				SendData(context->fd,str);
-			}
-		}
-
-		else
-		{
-			JudgeError(request, &error);
-		}
-		if (error != NULL) {
-			response.SetError(error);
-			response.SetId(request.GetId());
-			str = str + response.ToString();
-			SendData(context->fd, str);
-		}
+	{	
+		cout << "-------------" << endl;
+		cout << multiResponses.ToString() << endl;
+		str = str + multiResponses.ToString();
+		SendData(context->fd, str);
 	}
-	close(context->fd);	
+	
+	close(context->fd);
 }
 
 void RemoteCall(JsonRpcRequest &request,struct context_t *context,JsonRpcResponse &response)
@@ -333,40 +298,43 @@ void RemoteCall(JsonRpcRequest &request,struct context_t *context,JsonRpcRespons
 	//没有找到远程调用的方法	
 	else
 	{
-		response.SetJsonRpc();
 		response.SetError("{\"code\": -32601, \"message\": \"Method not found\"}");
 		response.SetId(request.GetId());
 	}	
 }
 
-void JudgeError(JsonRpcRequest &request, const char **error)
+const char * JudgeError(JsonRpcRequest &request)
 {
+	const char *error = NULL;
+
 	switch(request.Validate()) {
 				
 		case NO_PARAMS:
-		*error = "{\"code\": -32765, \"message\": \"Lack of params\"}";
-		break ;
+		error = "{\"code\": -32765, \"message\": \"Lack of params\"}";
+		break;
 
 		case PARSE_FAILED:
-		*error = "{\"code\": -32700, \"message\": \"Parse error\"}";
+		error = "{\"code\": -32700, \"message\": \"Parse error\"}";
 		break;
 
 		case NO_JSONRPC:
-		*error = "{\"code\": -32767, \"message\": \"JsonRpc not found\"}";
+		error = "{\"code\": -32767, \"message\": \"JsonRpc not found\"}";
 		break;
 
 		case NO_METH:
-		*error = "{\"code\": -32766, \"message\": \"Lack of method\"}";
+		error = "{\"code\": -32766, \"message\": \"Lack of method\"}";
 		break;
 
 		case INVALID_PARAMS:
-		*error = "{\"code\": -32602, \"message\": \"Invalid params\"}";
+		error = "{\"code\": -32602, \"message\": \"Invalid params\"}";
 		break;
 
 		default:
-		*error = NULL;
+		error = NULL;
 		break;
 		}
+
+		return error;
 }
 
 

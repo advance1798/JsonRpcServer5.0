@@ -17,8 +17,6 @@ using namespace std;
 
 #define N 10000
 
-using namespace std;
-
 class JsonRpcServer
 {
 public:

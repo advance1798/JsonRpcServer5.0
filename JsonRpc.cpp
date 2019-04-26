@@ -61,29 +61,11 @@ bool JsonRpcRequest::IsNotify()
 		return 1;
 }
 
-bool JsonRpcRequest::IsMulti()
-{
-	if(json_str.type() == Json::arrayValue)
-		return 1;
-	else
-		return 0;
-}
-
 std::string JsonRpcRequest::ToString()
 {
 	Json::FastWriter writer;
 
  	return writer.write(json_str);
-}
-
-void JsonRpcRequest::SetJsonRpc() 
-{
-	json_str["jsonrpc"] = "2.0";
-}
-
-std::string JsonRpcRequest::GetJsonRpc()
-{
-	return (json_str["jsonrpc"].asString());
 }
 
 void JsonRpcRequest::SetMethod(const std::string &method)
@@ -109,8 +91,6 @@ void JsonRpcRequest::SetParams(const std::string &param)
 
 Json::Value& JsonRpcRequest::GetParams()
 {
-    //Json::FastWriter writer;
-	//return writer.write(json_str["params"]);
 	return json_str["params"];
 }
 
@@ -151,23 +131,27 @@ int JsonRpcResponse::Validate()
 	if(json_str.empty())
 		return PARSE_FAILED;
 
-	if((json_str.isMember("result"))&&(json_str.isMember("error")))
-		return INVALID_INCLUDE;
-
 	if((json_str.isMember("jsonrpc") != true))
 		return NO_JSONRPC;
 
 	if(!( json_str.isMember("result") == true || json_str.isMember("error") == true ))
 		return NO_RESULT_OR_ERROR;
 
-	if(!(json_str["error"].type() == Json::arrayValue || json_str["error"].type() == Json::objectValue))
-		return INVALID_ERROR;
+	/*if(json_str["result"].isString()&&json_str["error"].isString())
+		return INVALID_INCLUDE;*/
+	if((json_str.isMember("result") == true)&&(json_str.isMember("error")== true))
+		return INVALID_INCLUDE;
 
-	if((json_str.isMember("result") == true)&&(json_str.isMember("error") != true))
+	if((json_str.isMember("error") == true))
+	{
+		if(json_str["error"].type() == Json::arrayValue || json_str["error"].type() == Json::objectValue)
+			return GET_ERROR;
+		else
+			return INVALID_ERROR;
+	}
+
+	if((json_str.isMember("result") == true))
 		return GET_RESULT;
-
-	if((json_str.isMember("error") == true)&&(json_str.isMember("result") != true))
-		return GET_ERROR;
 
 	return 0;
 }
@@ -178,29 +162,11 @@ bool JsonRpcResponse::IsNotify()
 		return 1;
 }
 
-bool JsonRpcResponse::IsMulti()
-{
-	if(json_str.type() == Json::arrayValue)
-		return 1;
-	else
-		return 0;
-}
-
 std::string JsonRpcResponse::ToString()
 {
 	Json::FastWriter writer;
  	//生成请求json格式报文
  	return writer.write(json_str); 	
-}
-
-void JsonRpcResponse::SetJsonRpc() 
-{
-	json_str["jsonrpc"] = "2.0";
-}
-
-std::string JsonRpcResponse::GetJsonRpc()
-{
-	return (json_str["jsonrpc"].asString());
 }
 
 void JsonRpcResponse::SetResult(const std::string &result)
@@ -261,19 +227,33 @@ MJsonRpcRequest::MJsonRpcRequest()
 MJsonRpcRequest::MJsonRpcRequest(const std::string &json)
 {
 	Json::Reader reader;
+	Json::Value jsondata;//设置成局部对象
 	if(!reader.parse(json,jsondata))
 	{
 		cerr << "json parse failed" << endl;
 		return;
 	}
-	int n = jsondata.size();
 
-	for(int i = 0;i < n;i ++)
-	{	
-		Json::FastWriter writer;
-		JsonRpcRequest A(writer.write(jsondata[i]));
-		V.push_back(A);
+	Json::FastWriter writer;
+
+	if(jsondata.isArray())
+	{
+		flag = true;
+		n = jsondata.size();
+		for(int i = 0; i < n; i++)
+		{	
+			JsonRpcRequest A(writer.write(jsondata[i]));
+			V.push_back(A);
+		}
 	}
+	else
+	{	
+		flag = false;
+		n = 1;
+		JsonRpcRequest B(writer.write(jsondata));
+		V.push_back(B);
+	}	
+ 
 }
 
 void MJsonRpcRequest::InsertJsonObj(JsonRpcRequest &obj)
@@ -283,15 +263,24 @@ void MJsonRpcRequest::InsertJsonObj(JsonRpcRequest &obj)
 
 std::string MJsonRpcRequest::ToString()
 {
-	std::string r("[");
-	for (auto i : V)//将目标对象中的所有子对象进行遍历
-	{	
-		r += i.ToString()+",";
-	}
+		//这里不用区分flag，之前没有可以获得的数据
+		std::string r("[");
+		for (auto i : V)//将目标对象中的所有子对象进行遍历
+		{	
+			r += i.ToString()+",";
+		}
 
-	r.pop_back();
-	r += "]";
-	return r;
+		r.pop_back();
+		r += "]";
+		return r;
+}
+
+bool MJsonRpcRequest::IsMulti()
+{
+	if(flag)
+		return 1;
+	else
+		return 0;
 }
 
 JsonRpcRequest & MJsonRpcRequest::operator[](int n)
@@ -301,7 +290,6 @@ JsonRpcRequest & MJsonRpcRequest::operator[](int n)
 
 int MJsonRpcRequest::GetSize()
 {
-	int n = jsondata.size();
 	return n;
 }
 
@@ -313,19 +301,29 @@ MJsonRpcResponse::MJsonRpcResponse()
 MJsonRpcResponse::MJsonRpcResponse(const std::string &json)
 {
 	Json::Reader reader;
+	Json::Value jsondata;
+	Json::FastWriter writer;
+
 	if(!reader.parse(json,jsondata))
 	{
 		cerr << "json parse failed" << endl;
 		return;
 	}
-	int n;
-	n = jsondata.size();
 
-	for(int i = 0;i < n; i++)
+	if(jsondata.type() == Json::arrayValue)
 	{
-		Json::FastWriter writer;
-		JsonRpcResponse A(writer.write(jsondata[i]));
-		V.push_back(A);
+		n = jsondata.size();
+		for(int i = 0;i < n; i++)
+		{
+			JsonRpcResponse A(writer.write(jsondata[i]));
+			V.push_back(A);
+		}
+	}
+	else
+	{
+		n = 1;
+		JsonRpcResponse B(writer.write(jsondata));
+		V.push_back(B);
 	}
 }
 
@@ -336,13 +334,33 @@ void MJsonRpcResponse::InsertJsonObj(JsonRpcResponse &obj)
 
 std::string MJsonRpcResponse::ToString()
 {
-	std::string r("[");
-	for (auto i : V)//将目标对象中的所有子对象进行遍历
-		r += i.ToString()+",";
+	if(flag)
+	{
+		std::string r("[");
+		for (auto i : V)//将目标对象中的所有子对象进行遍历
+		{	
+			r += i.ToString()+",";
+		}
 
-	r.pop_back();
-	r += "]";
-	return r;
+		r.pop_back();
+		r += "]";
+		return r;
+	}
+	else 
+	{
+		cout << "single" << endl;
+		std::string r("");
+		for(auto i : V)
+			r = i.ToString();
+
+		return r;
+	}
+	
+}
+
+void MJsonRpcResponse::SetMulti(bool a)
+{
+	flag = a;
 }
 
 JsonRpcResponse & MJsonRpcResponse::operator[](int n)
@@ -352,7 +370,6 @@ JsonRpcResponse & MJsonRpcResponse::operator[](int n)
 
 int MJsonRpcResponse::GetSize()
 {
-	int n = jsondata.size();
 	return n;
 }
 
